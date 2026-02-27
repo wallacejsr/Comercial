@@ -1,5 +1,11 @@
+import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+
+const supabase = createClient(supabaseUrl || '', supabaseKey || '', { auth: { persistSession: false } });
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -8,28 +14,14 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    if (process.env.DEBUG_API === 'true') {
-      console.log('/api/auth/login body:', req.body);
-    }
+    if (process.env.DEBUG_API === 'true') console.log('/api/auth/login body:', req.body);
     const { email, password } = req.body || {};
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password required' });
-    }
+    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
-    // create pool locally to avoid importing server modules
-    const { Pool } = await import('pg');
-    const globalAny: any = global as any;
-    if (!globalAny.__vercel_pool) {
-      globalAny.__vercel_pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl: { rejectUnauthorized: false }
-      });
-    }
-    const pool = globalAny.__vercel_pool;
-
-    if (process.env.DEBUG_API === 'true') console.log('Querying user by email:', email);
-    const result = await pool.query('SELECT * FROM users WHERE email = $1 LIMIT 1', [email]);
-    const user = result.rows[0];
+    if (process.env.DEBUG_API === 'true') console.log('Querying Supabase users by email:', email);
+    const { data, error } = await supabase.from('users').select('*').eq('email', email).limit(1).maybeSingle();
+    if (error) throw error;
+    const user = data as any;
     if (process.env.DEBUG_API === 'true') console.log('User found:', !!user);
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
@@ -41,9 +33,7 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({ token, user: userWithoutPassword });
   } catch (err: any) {
     console.error('API /api/auth/login error:', err);
-    if (process.env.DEBUG_API === 'true') {
-      return res.status(500).json({ error: 'Internal server error', detail: err.message, stack: err.stack });
-    }
+    if (process.env.DEBUG_API === 'true') return res.status(500).json({ error: 'Internal server error', detail: err.message, stack: err.stack });
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
