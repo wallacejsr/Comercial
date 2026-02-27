@@ -1,5 +1,5 @@
-import { UserRepository } from '../../server/repositories';
-import { comparePassword, generateToken } from '../../server/auth';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -16,24 +16,29 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    if (process.env.DEBUG_API === 'true') console.log('Looking up user by email:', email);
-    const user = await UserRepository.findByEmail(email);
-    if (process.env.DEBUG_API === 'true') console.log('User lookup result:', !!user);
+    // create pool locally to avoid importing server modules
+    const { Pool } = await import('pg');
+    const globalAny: any = global as any;
+    if (!globalAny.__vercel_pool) {
+      globalAny.__vercel_pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+      });
+    }
+    const pool = globalAny.__vercel_pool;
+
+    if (process.env.DEBUG_API === 'true') console.log('Querying user by email:', email);
+    const result = await pool.query('SELECT * FROM users WHERE email = $1 LIMIT 1', [email]);
+    const user = result.rows[0];
+    if (process.env.DEBUG_API === 'true') console.log('User found:', !!user);
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
-    try {
-      const ok = await comparePassword(password, user.password || '');
-      if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+    const ok = await bcrypt.compare(password, user.password || '');
+    if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
-      const token = generateToken(user);
-      // remove password from response
-      // @ts-ignore
-      const { password: _pw, ...userWithoutPassword } = user;
-      return res.status(200).json({ token, user: userWithoutPassword });
-    } catch (pwErr: any) {
-      console.error('Password compare error:', pwErr);
-      throw pwErr;
-    }
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET || 'crm-secret-key-2026', { expiresIn: '24h' });
+    const { password: _pw, ...userWithoutPassword } = user;
+    return res.status(200).json({ token, user: userWithoutPassword });
   } catch (err: any) {
     console.error('API /api/auth/login error:', err);
     if (process.env.DEBUG_API === 'true') {
