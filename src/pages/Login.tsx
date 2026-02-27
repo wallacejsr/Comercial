@@ -24,12 +24,23 @@ export default function Login({ onLogin }: { onLogin: (user: any, token: string)
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json();
+      // Try to parse JSON, but tolerate non-JSON responses
+      let data: any = null;
+      const text = await res.text();
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = null;
+      }
+
       if (res.ok) {
+        const user = data?.user || null;
+        // support token or supabase.session.access_token
+        const token = data?.token || data?.session?.access_token || null;
         toast.success('Login successful');
-        onLogin(data.user, data.token);
+        onLogin(user, token);
       } else {
-        const msg = data?.error || 'Login failed';
+        const msg = (data && (data.error || data.message)) || text || 'Login failed';
         toast.error(msg);
         setError(msg);
       }
