@@ -9,48 +9,30 @@ export default function Login({ onLogin }: { onLogin: (user: any, token: string)
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-  const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-  const supabase = createClient(SUPABASE_URL || '', SUPABASE_ANON_KEY || '', { auth: { persistSession: false } });
+  const apiBase = import.meta.env.VITE_API_URL || '';
+  const endpoint = apiBase ? `${apiBase.replace(/\/$/, '')}/api/auth/login` : '/api/auth/login';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      const msg = 'Supabase env vars not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)';
-      toast.error(msg);
-      setError(msg);
-      setLoading(false);
-      return;
-    }
-
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
 
-      if (error) {
-        const msg = error.message || 'Login failed';
+      const data = await res.json();
+      if (res.ok) {
+        toast.success('Login successful');
+        onLogin(data.user, data.token);
+      } else {
+        const msg = data?.error || 'Login failed';
         toast.error(msg);
         setError(msg);
-        setLoading(false);
-        return;
       }
-
-      const session = (data as any)?.session || null;
-      const user = (data as any)?.user || null;
-
-      if (!session || !user) {
-        const msg = 'Authentication failed';
-        toast.error(msg);
-        setError(msg);
-        setLoading(false);
-        return;
-      }
-
-      toast.success('Login successful');
-      onLogin(user, session.access_token);
     } catch (err: any) {
       const msg = err?.message || 'Connection error';
       toast.error(msg);

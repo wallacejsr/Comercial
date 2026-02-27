@@ -22,48 +22,59 @@ export default async function handler(req: any, res: any) {
 
   try {
     // Body may already be parsed by Vercel; guard if string
-    let body = req.body;
-    if (typeof body === 'string') {
-      try { body = JSON.parse(body); } catch { /* ignore */ }
+    import { Pool } from 'pg';
+    import bcrypt from 'bcryptjs';
+    import jwt from 'jsonwebtoken';
+
+    const debug = process.env.DEBUG_API === 'true';
+
+    // Reuse pool across invocations
+    const globalAny: any = global as any;
+    if (!globalAny.__pg_pool && process.env.DATABASE_URL) {
+      globalAny.__pg_pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
     }
 
-    const email = body?.email;
-    const password = body?.password;
+    const pool: Pool | undefined = globalAny.__pg_pool;
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password required' });
+    export default async function handler(req: any, res: any) {
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        return res.status(405).json({ error: 'Method not allowed' });
+      }
+
+      try {
+        let body = req.body;
+        if (typeof body === 'string') {
+          try { body = JSON.parse(body); } catch { /* ignore */ }
+        }
+
+        const email = body?.email;
+        const password = body?.password;
+
+        if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+        if (!pool) {
+          console.error('DATABASE_URL not configured or pool not initialized');
+          return res.status(500).json({ error: 'Database not configured' });
+        }
+
+        if (debug) console.log('Looking up user by email:', email);
+        const result = await pool.query('SELECT * FROM users WHERE email = $1 LIMIT 1', [email]);
+        const user = result.rows[0];
+
+        if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+
+        const hash = user.password || '';
+        const ok = await bcrypt.compare(password, hash);
+        if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+
+        const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET || 'crm-secret-key-2026', { expiresIn: '24h' });
+
+        const { password: _pw, ...userWithoutPassword } = user;
+        return res.status(200).json({ user: userWithoutPassword, token });
+      } catch (err: any) {
+        console.error('API /api/auth/login error:', err);
+        if (debug) return res.status(500).json({ error: 'Internal server error', detail: err.message, stack: err.stack });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
     }
-
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
-      return res.status(500).json({ error: 'Supabase environment variables are not configured' });
-    }
-
-    if (debug) console.log('Attempting sign-in for', email);
-
-    // Use Supabase Auth to verify credentials server-side
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) {
-      // Map Supabase error to HTTP status
-      if (debug) console.warn('Supabase auth error:', error.message);
-      // Invalid credentials usually come as 400 with message; return 401
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const session = (data as any)?.session || null;
-    const user = (data as any)?.user || null;
-
-    if (!session || !user) {
-      if (debug) console.warn('No session/user returned from Supabase:', data);
-      return res.status(500).json({ error: 'Authentication failed' });
-    }
-
-    const token = session.access_token || null;
-
-    return res.status(200).json({ user, token });
-  } catch (err: any) {
-    console.error('API /api/auth/login error:', err);
-    if (debug) return res.status(500).json({ error: 'Internal server error', detail: err?.message, stack: err?.stack });
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-}
