@@ -26,6 +26,9 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({ token, user: userWithoutPassword });
   } catch (err: any) {
     console.error('API /api/auth/login error:', err);
+    if (process.env.DEBUG_API === 'true') {
+      return res.status(500).json({ error: 'Internal server error', detail: err.message, stack: err.stack });
+    }
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
