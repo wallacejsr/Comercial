@@ -9,7 +9,7 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABA
 const debug = process.env.DEBUG_API === 'true';
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
-  if (debug) console.warn('Supabase env vars missing: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  if (debug) console.warn('Supabase env vars missing: SUPABASE_URL or SUPABASE key');
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
@@ -21,60 +21,42 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // Body may already be parsed by Vercel; guard if string
-    import { Pool } from 'pg';
-    import bcrypt from 'bcryptjs';
-    import jwt from 'jsonwebtoken';
-
-    const debug = process.env.DEBUG_API === 'true';
-
-    // Reuse pool across invocations
-    const globalAny: any = global as any;
-    if (!globalAny.__pg_pool && process.env.DATABASE_URL) {
-      globalAny.__pg_pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    let body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = {}; }
     }
 
-    const pool: Pool | undefined = globalAny.__pg_pool;
+    const email = body?.email;
+    const password = body?.password;
 
-    export default async function handler(req: any, res: any) {
-      if (req.method !== 'POST') {
-        res.setHeader('Allow', 'POST');
-        return res.status(405).json({ error: 'Method not allowed' });
-      }
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' });
+    }
 
-      try {
-        let body = req.body;
-        if (typeof body === 'string') {
-          try { body = JSON.parse(body); } catch { /* ignore */ }
-        }
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      console.error('Supabase environment variables not set');
+      return res.status(500).json({ error: 'Server error, check logs' });
+    }
 
-        const email = body?.email;
-        const password = body?.password;
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
-        if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+    if (error) {
+      if (debug) console.warn('Supabase auth error:', error.message);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
-        if (!pool) {
-          console.error('DATABASE_URL not configured or pool not initialized');
-          return res.status(500).json({ error: 'Database not configured' });
-        }
+    const user = (data as any)?.user || null;
+    const session = (data as any)?.session || null;
 
-        if (debug) console.log('Looking up user by email:', email);
+    if (!user || !session) {
+      if (debug) console.warn('Auth returned no user/session:', data);
+      return res.status(500).json({ error: 'Server error, check logs' });
+    }
+
+    return res.status(200).json({ user, session });
+  } catch (err: any) {
+    console.error('API /api/auth/login server error:', err);
+    return res.status(500).json({ error: 'Server error, check logs' });
+  }
+}
         const result = await pool.query('SELECT * FROM users WHERE email = $1 LIMIT 1', [email]);
-        const user = result.rows[0];
-
-        if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-
-        const hash = user.password || '';
-        const ok = await bcrypt.compare(password, hash);
-        if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
-
-        const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET || 'crm-secret-key-2026', { expiresIn: '24h' });
-
-        const { password: _pw, ...userWithoutPassword } = user;
-        return res.status(200).json({ user: userWithoutPassword, token });
-      } catch (err: any) {
-        console.error('API /api/auth/login error:', err);
-        if (debug) return res.status(500).json({ error: 'Internal server error', detail: err.message, stack: err.stack });
-        return res.status(500).json({ error: 'Internal server error' });
-      }
-    }
