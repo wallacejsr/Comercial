@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { LayoutDashboard, LogIn } from 'lucide-react';
-import { createClient } from '@supabase/supabase-js';
 import toast from 'react-hot-toast';
 
 export default function Login({ onLogin }: { onLogin: (user: any, token: string) => void }) {
-  const [email, setEmail] = useState('admin@crm.com');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -35,8 +34,8 @@ export default function Login({ onLogin }: { onLogin: (user: any, token: string)
 
       if (res.ok) {
         const user = data?.user || null;
-        // support token or supabase.session.access_token
-        const token = data?.token || data?.session?.access_token || null;
+        // Supabase returns session.access_token
+        const token = data?.session?.access_token || data?.token || null;
         toast.success('Login successful');
         onLogin(user, token);
       } else {
@@ -76,7 +75,7 @@ export default function Login({ onLogin }: { onLogin: (user: any, token: string)
                 type="email"
                 required
                 className="appearance-none rounded-lg relative block w-full px-3 py-2 border border-slate-300 placeholder-slate-500 text-slate-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                placeholder="admin@crm.com"
+                placeholder="your@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
