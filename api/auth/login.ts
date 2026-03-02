@@ -29,6 +29,8 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    console.log('Login handler called, method:', req.method);
+    
     let body = req.body;
     if (typeof body === 'string') {
       try {
@@ -52,7 +54,10 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: 'Database not configured' });
     }
 
+    console.log('Pool available, proceeding to query...');
+
     // Query user from database
+    console.log('Querying user by email:', email);
     const result = await pool.query('SELECT * FROM users WHERE email = $1 LIMIT 1', [email]);
     const user = result.rows[0];
 
@@ -61,14 +66,24 @@ export default async function handler(req: any, res: any) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    console.log('User found:', { userId: user.id, email });
+
     // Get password from user record
     const passwordField = user.password || '';
+
+    if (!passwordField) {
+      console.warn('User has no password set');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
     // Try bcrypt first (if hash), then plain text comparison
     let isValid = false;
     try {
+      console.log('Comparing password with bcrypt...');
       isValid = await bcrypt.compare(password, passwordField);
-    } catch {
+      console.log('Bcrypt comparison result:', isValid);
+    } catch (bcryptErr: any) {
+      console.error('Bcrypt compare error:', bcryptErr?.message);
       // If bcrypt fails, try plain text comparison
       isValid = password === passwordField;
     }
@@ -77,6 +92,8 @@ export default async function handler(req: any, res: any) {
       console.warn('Password mismatch for user:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    console.log('Password valid, generating token...');
 
     // Generate JWT token
     const token = jwt.sign(
@@ -95,7 +112,12 @@ export default async function handler(req: any, res: any) {
       token,
     });
   } catch (err: any) {
-    console.error('Login error:', err?.message);
+    console.error('Login error:', {
+      message: err?.message,
+      code: err?.code,
+      detail: err?.detail,
+      stack: err?.stack?.split('\n')[0],
+    });
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
