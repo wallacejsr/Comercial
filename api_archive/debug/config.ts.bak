@@ -1,0 +1,22 @@
+// backup of debug config
+export default function handler(req: any, res: any) {
+  res.setHeader('Content-Type', 'application/json');
+
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const SUPABASE_URL = process.env.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+
+  return res.status(200).json({
+    SUPABASE_URL,
+    SUPABASE_URL_length: SUPABASE_URL.length,
+    SUPABASE_ANON_KEY_length: SUPABASE_ANON_KEY.length,
+    env_vars_set: {
+      SUPABASE_URL: !!SUPABASE_URL,
+      SUPABASE_ANON_KEY: !!SUPABASE_ANON_KEY,
+    },
+  });
+}
