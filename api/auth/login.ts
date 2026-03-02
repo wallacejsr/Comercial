@@ -1,8 +1,23 @@
-const SUPABASE_URL = process.env.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+import { Pool } from 'pg';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error('Missing Supabase env vars');
+const DATABASE_URL = process.env.DATABASE_URL || '';
+const JWT_SECRET = process.env.JWT_SECRET || 'crm-secret-key-2026';
+
+const globalAny: any = global as any;
+let pool: Pool | null = null;
+
+try {
+  if (!globalAny.__pg_pool && DATABASE_URL) {
+    globalAny.__pg_pool = new Pool({
+      connectionString: DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    });
+  }
+  pool = globalAny.__pg_pool || null;
+} catch (e: any) {
+  console.error('Pool init error:', e?.message);
 }
 
 export default async function handler(req: any, res: any) {
@@ -14,86 +29,73 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // Parse body
     let body = req.body;
     if (typeof body === 'string') {
       try {
         body = JSON.parse(body);
-      } catch (parseErr) {
-        console.error('Parse error:', parseErr);
-        return res.status(400).json({ error: 'Invalid JSON' });
+      } catch {
+        body = {};
       }
     }
 
     const email = (body?.email || '').trim();
     const password = body?.password || '';
 
-    console.log('Login attempt:', { email, SUPABASE_URL: SUPABASE_URL.substring(0, 30) });
+    console.log('Login attempt:', { email });
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      console.error('Supabase not configured');
-      return res.status(500).json({ error: 'Supabase not configured' });
+    if (!pool) {
+      console.error('Database pool not initialized');
+      return res.status(500).json({ error: 'Database not configured' });
     }
 
+    // Query user from database
+    const result = await pool.query('SELECT * FROM users WHERE email = $1 LIMIT 1', [email]);
+    const user = result.rows[0];
+
+    if (!user) {
+      console.warn('User not found:', email);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Get password from user record
+    const passwordField = user.password || '';
+
+    // Try bcrypt first (if hash), then plain text comparison
+    let isValid = false;
     try {
-      // Call Supabase Auth API directly via REST with explicit timeout handling
-      const authUrl = `${SUPABASE_URL}/auth/v1/token?grant_type=password`;
-      
-      console.log('Calling Supabase Auth API...');
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-      
-      const authRes = await fetch(authUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          email,
-          password,
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      const authData = await authRes.json().catch(() => null);
-
-      if (!authRes.ok) {
-        const errorMsg = authData?.error_description || authData?.error || 'Unknown error';
-        console.warn('Auth failed:', authRes.status, errorMsg);
-        return res.status(401).json({ error: errorMsg });
-      }
-
-      if (!authData?.user) {
-        console.error('No user in response:', authData);
-        return res.status(500).json({ error: 'Auth returned no user' });
-      }
-
-      console.log('Login success:', { email, userId: authData.user.id });
-
-      return res.status(200).json({
-        user: authData.user,
-        session: {
-          access_token: authData.access_token,
-          refresh_token: authData.refresh_token,
-        },
-      });
-    } catch (authError: any) {
-      console.error('Auth exception:', authError?.name, authError?.message);
-      if (authError?.name === 'AbortError') {
-        return res.status(504).json({ error: 'Request timeout' });
-      }
-      return res.status(500).json({ error: authError?.message || 'Authentication error' });
+      isValid = await bcrypt.compare(password, passwordField);
+    } catch {
+      // If bcrypt fails, try plain text comparison
+      isValid = password === passwordField;
     }
+
+    if (!isValid) {
+      console.warn('Password mismatch for user:', email);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    // Remove password from response
+    const { password: _pw, ...userWithoutPassword } = user;
+
+    console.log('Login successful:', { email, userId: user.id });
+
+    return res.status(200).json({
+      user: userWithoutPassword,
+      token,
+    });
   } catch (err: any) {
-    console.error('Handler exception:', err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('Login error:', err?.message);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }
