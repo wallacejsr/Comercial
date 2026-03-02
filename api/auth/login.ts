@@ -1,29 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
-
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   console.error('Missing Supabase env vars');
-}
-
-let supabase: any = null;
-
-try {
-  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-    console.log('Creating Supabase client at module load time');
-    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
-    console.log('Supabase client created successfully');
-  } else {
-    console.error('Supabase URL or key missing at module load');
-  }
-} catch (e: any) {
-  console.error('Supabase init error at module load:', e?.message);
 }
 
 export default async function handler(req: any, res: any) {
@@ -35,11 +14,6 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    if (!supabase) {
-      console.error('Supabase not initialized - missing URL or key');
-      return res.status(500).json({ error: 'Supabase not configured' });
-    }
-
     // Parse body
     let body = req.body;
     if (typeof body === 'string') {
@@ -60,31 +34,54 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      console.error('Supabase not configured');
+      return res.status(500).json({ error: 'Supabase not configured' });
+    }
+
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      // Call Supabase Auth API directly via REST
+      const authUrl = `${SUPABASE_URL}/auth/v1/token?grant_type=password`;
+      
+      console.log('Calling Supabase Auth API:', authUrl);
+      
+      const authRes = await fetch(authUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+        signal: AbortSignal.timeout(10000), // 10 second timeout
       });
 
-      if (error) {
-        console.warn('Auth failed:', error.message);
-        return res.status(401).json({ error: error.message || 'Invalid credentials' });
+      const authData = await authRes.json();
+
+      if (!authRes.ok) {
+        console.warn('Auth failed:', authRes.status, authData?.error_description || authData?.error);
+        return res.status(401).json({ error: authData?.error_description || 'Invalid credentials' });
       }
 
-      if (!data?.user) {
-        console.error('No user in response');
+      if (!authData?.user) {
+        console.error('No user in response:', authData);
         return res.status(500).json({ error: 'Auth returned no user' });
       }
 
-      console.log('Login success:', { email, userId: data.user.id });
+      console.log('Login success:', { email, userId: authData.user.id });
 
       return res.status(200).json({
-        user: data.user,
-        session: data.session,
+        user: authData.user,
+        session: {
+          access_token: authData.access_token,
+          refresh_token: authData.refresh_token,
+        },
       });
     } catch (authError: any) {
       console.error('Auth exception:', authError?.message);
-      return res.status(500).json({ error: 'Authentication error' });
+      return res.status(500).json({ error: authError?.message || 'Authentication error' });
     }
   } catch (err: any) {
     console.error('Handler exception:', err);
