@@ -18,24 +18,20 @@ const __dirname = path.dirname(__filename);
 // Helper: create transporter from settings or env
 async function createTransporter() {
   try {
-    const hostRow = await SettingRepository.get('smtp_host');
-    const portRow = await SettingRepository.get('smtp_port');
-    const userRow = await SettingRepository.get('smtp_user');
-    const passRow = await SettingRepository.get('smtp_pass');
-    const secureRow = await SettingRepository.get('smtp_secure');
+    const res = await pool.query('SELECT * FROM smtp_settings ORDER BY id DESC LIMIT 1');
+    const row = res.rows[0] || {};
 
-    const host = hostRow?.valor || process.env.SMTP_HOST || 'smtp.ethereal.email';
-    const port = Number(portRow?.valor || process.env.SMTP_PORT || 587);
-    const user = userRow?.valor || process.env.SMTP_USER || undefined;
-    const pass = passRow?.valor || process.env.SMTP_PASS || undefined;
-    const secure = (secureRow?.valor || process.env.SMTP_SECURE || 'false') === 'true';
+    const host = row.host || process.env.SMTP_HOST || 'smtp.ethereal.email';
+    const port = Number(row.port || process.env.SMTP_PORT || 587);
+    const user = row.username || process.env.SMTP_USER || undefined;
+    const pass = row.password || process.env.SMTP_PASS || undefined;
+    const secure = (row.secure === true) || (process.env.SMTP_SECURE === 'true');
 
     const config: any = { host, port, secure };
     if (user && pass) config.auth = { user, pass };
     return nodemailer.createTransport(config);
   } catch (err) {
     console.error('createTransporter error:', err);
-    // fallback to env-based transporter
     return nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.ethereal.email',
       port: Number(process.env.SMTP_PORT) || 587,

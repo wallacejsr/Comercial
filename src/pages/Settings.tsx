@@ -26,17 +26,11 @@ export default function Settings() {
   const fetchData = async () => {
     const headers = { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
     try {
-      const [stagesRes, usersRes, geminiRes] = await Promise.all([
+      const [stagesRes, usersRes, geminiRes, smtpRes] = await Promise.all([
         fetch('/api/funnel/stages', { headers }),
         fetch('/api/users', { headers }),
         fetch('/api/settings/gemini_api_key', { headers }),
-        fetch('/api/settings/smtp_host', { headers }),
-        fetch('/api/settings/smtp_port', { headers }),
-        fetch('/api/settings/smtp_user', { headers }),
-        fetch('/api/settings/smtp_pass', { headers }),
-        fetch('/api/settings/smtp_from_name', { headers }),
-        fetch('/api/settings/smtp_from_email', { headers }),
-        fetch('/api/settings/smtp_secure', { headers }),
+        fetch('/api/smtp_settings', { headers })
       ]);
       
       if (stagesRes.ok) setStages(await stagesRes.json());
@@ -46,13 +40,22 @@ export default function Settings() {
         const geminiData = await geminiRes.json();
         if (geminiData) setGeminiKey(geminiData.valor || '');
       }
-      try { const sh = await (await fetch('/api/settings/smtp_host', { headers })).json(); setSmtpHost(sh?.valor || ''); } catch(e){}
-      try { const sp = await (await fetch('/api/settings/smtp_port', { headers })).json(); setSmtpPort(sp?.valor || '587'); } catch(e){}
-      try { const su = await (await fetch('/api/settings/smtp_user', { headers })).json(); setSmtpUser(su?.valor || ''); } catch(e){}
-      try { const spass = await (await fetch('/api/settings/smtp_pass', { headers })).json(); setSmtpPass(spass?.valor || ''); } catch(e){}
-      try { const sfn = await (await fetch('/api/settings/smtp_from_name', { headers })).json(); setSmtpFromName(sfn?.valor || ''); } catch(e){}
-      try { const sfe = await (await fetch('/api/settings/smtp_from_email', { headers })).json(); setSmtpFromEmail(sfe?.valor || ''); } catch(e){}
-      try { const ssec = await (await fetch('/api/settings/smtp_secure', { headers })).json(); setSmtpSecure((ssec?.valor || 'false') === 'true'); } catch(e){}
+      if (smtpRes && smtpRes.ok) {
+        try {
+          const smtpData = await smtpRes.json();
+          if (smtpData) {
+            setSmtpHost(smtpData.host || '');
+            setSmtpPort(String(smtpData.port || '587'));
+            setSmtpUser(smtpData.username || '');
+            setSmtpPass(smtpData.password || '');
+            setSmtpFromName(smtpData.from_name || '');
+            setSmtpFromEmail(smtpData.from_email || '');
+            setSmtpSecure(!!smtpData.secure);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
     } catch (err) {
       console.error('Erro ao carregar configurações:', err);
     } finally {
@@ -118,24 +121,27 @@ export default function Settings() {
   };
 
   const saveSmtpSettings = async () => {
-    const headers = { 
+    const headers = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${localStorage.getItem('token')}`
     };
     try {
-      const pairs = [
-        ['smtp_host', smtpHost],
-        ['smtp_port', smtpPort],
-        ['smtp_user', smtpUser],
-        ['smtp_pass', smtpPass],
-        ['smtp_from_name', smtpFromName],
-        ['smtp_from_email', smtpFromEmail],
-        ['smtp_secure', smtpSecure ? 'true' : 'false']
-      ];
-      for (const [key, value] of pairs) {
-        await fetch('/api/settings', { method: 'POST', headers, body: JSON.stringify({ key, value }) });
+      const payload = {
+        host: smtpHost,
+        port: Number(smtpPort || 587),
+        username: smtpUser || null,
+        password: smtpPass || null,
+        from_name: smtpFromName || null,
+        from_email: smtpFromEmail || null,
+        secure: smtpSecure || false,
+      };
+      const res = await fetch('/api/smtp_settings', { method: 'POST', headers, body: JSON.stringify(payload) });
+      if (res.ok) {
+        toast.success('Configurações SMTP salvas com sucesso!');
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Erro ao salvar SMTP');
       }
-      toast.success('Configurações SMTP salvas com sucesso!');
     } catch (err) {
       console.error(err);
       toast.error('Erro ao salvar configurações SMTP');
