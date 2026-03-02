@@ -28,7 +28,7 @@ export default async function handler(req: any, res: any) {
     const email = (body?.email || '').trim();
     const password = body?.password || '';
 
-    console.log('Login attempt:', { email });
+    console.log('Login attempt:', { email, SUPABASE_URL: SUPABASE_URL.substring(0, 30) });
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
@@ -40,10 +40,13 @@ export default async function handler(req: any, res: any) {
     }
 
     try {
-      // Call Supabase Auth API directly via REST
+      // Call Supabase Auth API directly via REST with explicit timeout handling
       const authUrl = `${SUPABASE_URL}/auth/v1/token?grant_type=password`;
       
-      console.log('Calling Supabase Auth API:', authUrl);
+      console.log('Calling Supabase Auth API...');
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
       
       const authRes = await fetch(authUrl, {
         method: 'POST',
@@ -55,14 +58,17 @@ export default async function handler(req: any, res: any) {
           email,
           password,
         }),
-        signal: AbortSignal.timeout(10000), // 10 second timeout
+        signal: controller.signal,
       });
 
-      const authData = await authRes.json();
+      clearTimeout(timeoutId);
+
+      const authData = await authRes.json().catch(() => null);
 
       if (!authRes.ok) {
-        console.warn('Auth failed:', authRes.status, authData?.error_description || authData?.error);
-        return res.status(401).json({ error: authData?.error_description || 'Invalid credentials' });
+        const errorMsg = authData?.error_description || authData?.error || 'Unknown error';
+        console.warn('Auth failed:', authRes.status, errorMsg);
+        return res.status(401).json({ error: errorMsg });
       }
 
       if (!authData?.user) {
@@ -80,7 +86,10 @@ export default async function handler(req: any, res: any) {
         },
       });
     } catch (authError: any) {
-      console.error('Auth exception:', authError?.message);
+      console.error('Auth exception:', authError?.name, authError?.message);
+      if (authError?.name === 'AbortError') {
+        return res.status(504).json({ error: 'Request timeout' });
+      }
       return res.status(500).json({ error: authError?.message || 'Authentication error' });
     }
   } catch (err: any) {
