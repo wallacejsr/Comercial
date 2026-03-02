@@ -36,6 +36,53 @@ export function getApp() {
     res.json({ success: true, campaignId });
   });
 
+  // SMTP settings endpoints (restore legacy endpoint)
+  app.get('/api/smtp_settings', authenticateToken, checkRole(['admin','manager']), async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM smtp_settings ORDER BY id DESC LIMIT 1');
+      return res.json(result.rows[0] || null);
+    } catch (err: any) {
+      console.error('GET /api/smtp_settings error:', err?.message || err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/api/smtp_settings', authenticateToken, checkRole(['admin']), async (req, res) => {
+    try {
+      let body = req.body;
+      if (typeof body === 'string') {
+        try { body = JSON.parse(body); } catch { body = {}; }
+      }
+      const host = (body?.host || '').trim();
+      const port = Number(body?.port || 587);
+      const username = body?.username || null;
+      const password = body?.password || null;
+      const from_name = body?.from_name || null;
+      const from_email = body?.from_email || null;
+      const secure = !!body?.secure;
+
+      if (!host) return res.status(400).json({ error: 'host required' });
+
+      const existing = await pool.query('SELECT id FROM smtp_settings LIMIT 1');
+      if (existing.rows[0]) {
+        await pool.query(
+          'UPDATE smtp_settings SET host=$1, port=$2, username=$3, password=$4, from_name=$5, from_email=$6, secure=$7, updated_at=CURRENT_TIMESTAMP WHERE id = $8',
+          [host, port, username, password, from_name, from_email, secure, existing.rows[0].id]
+        );
+      } else {
+        await pool.query(
+          'INSERT INTO smtp_settings (host, port, username, password, from_name, from_email, secure) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+          [host, port, username, password, from_name, from_email, secure]
+        );
+      }
+
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error('POST /api/smtp_settings error:', err?.message || err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   // Background Worker for Email Queue
   setInterval(async () => {
     const pending = await EmailRepository.getPendingEmails(5); // Send 5 at a time
