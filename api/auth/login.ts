@@ -49,10 +49,20 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: 'Server error, check logs' });
     }
 
+    if (debug) {
+      console.log('Login attempt for email:', email);
+      console.log('SUPABASE_URL set:', !!SUPABASE_URL);
+      console.log('SUPABASE_KEY set:', !!SUPABASE_KEY);
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      if (debug) console.warn('Supabase auth error:', error.message);
+      const errMsg = error?.message || String(error);
+      console.error('Supabase auth error:', errMsg, error);
+      if (debug) {
+        return res.status(401).json({ error: 'Invalid credentials', detail: errMsg, supabaseError: error });
+      }
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
