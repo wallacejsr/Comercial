@@ -139,8 +139,13 @@ export default function Settings() {
       if (res.ok) {
         toast.success('Configurações SMTP salvas com sucesso!');
       } else {
-        const data = await res.json();
-        toast.error(data.error || 'Erro ao salvar SMTP');
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          toast.error(data.error || text || 'Erro ao salvar SMTP');
+        } catch (e) {
+          toast.error(text || 'Erro ao salvar SMTP');
+        }
       }
     } catch (err) {
       console.error(err);
