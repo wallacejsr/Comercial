@@ -5,14 +5,43 @@ const JWT_SECRET = process.env.JWT_SECRET || 'crm-secret-key-2026';
 
 const globalAny: any = global as any;
 let pool: any = null;
-try {
-  if (!globalAny.__pg_pool && DATABASE_URL) {
-    const { Pool } = require('pg');
-    globalAny.__pg_pool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+
+function initPoolIfNeeded() {
+  if (pool) return pool;
+  try {
+    if (globalAny.__pg_pool) {
+      pool = globalAny.__pg_pool;
+      return pool;
+    }
+
+    if (DATABASE_URL) {
+      try {
+        const { Pool } = require('pg');
+        globalAny.__pg_pool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+        pool = globalAny.__pg_pool;
+        return pool;
+      } catch (e) {
+        console.error('pg Pool creation failed in api/smtp_settings init:', e?.message || e);
+      }
+    }
+
+    // Try to reuse the app-level pool if available
+    try {
+      const appDb = require('../server/db').default;
+      if (appDb) {
+        pool = appDb;
+        globalAny.__pg_pool = appDb;
+        return pool;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return null;
+  } catch (err: any) {
+    console.error('initPoolIfNeeded error:', err?.message || err);
+    return null;
   }
-  pool = globalAny.__pg_pool || null;
-} catch (e: any) {
-  console.error('Pool init error (api/smtp_settings):', e?.message);
 }
 
 function verifyToken(req: any) {
@@ -30,7 +59,11 @@ function verifyToken(req: any) {
 export default async function handler(req: any, res: any) {
   res.setHeader('Content-Type', 'application/json');
 
-  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+  if (!pool) {
+    // attempt init now
+    pool = initPoolIfNeeded();
+  }
+  if (!pool) return res.status(500).json({ error: 'Database not configured (no pool). Ensure DATABASE_URL is set and pg is installed.' });
 
   try {
     if (req.method === 'GET') {
