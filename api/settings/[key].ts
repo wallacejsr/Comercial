@@ -6,9 +6,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'crm-secret-key-2026';
 
 const globalAny: any = global as any;
 let pool: Pool | null = null;
-try {
+  try {
   if (!globalAny.__pg_pool && DATABASE_URL) {
-    const { Pool } = await import('pg');
+    const { Pool } = require('pg');
     globalAny.__pg_pool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
   }
   pool = globalAny.__pg_pool || null;

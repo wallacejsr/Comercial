@@ -7,7 +7,7 @@ export default async function handler(req: any, res: any) {
   try {
     // Create a pool directly here to avoid importing server modules that
     // are not available in the Vercel serverless runtime path.
-    const { Pool } = await import('pg');
+    const { Pool } = require('pg');
     // reuse pool between invocations when possible
     const globalAny: any = global as any;
     if (!globalAny.__vercel_pool) {

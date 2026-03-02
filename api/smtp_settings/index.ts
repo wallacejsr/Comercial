@@ -8,7 +8,7 @@ const globalAny: any = global as any;
 let pool: Pool | null = null;
 try {
   if (!globalAny.__pg_pool && DATABASE_URL) {
-    const { Pool: PgPool } = await import('pg');
+    const { Pool: PgPool } = require('pg');
     globalAny.__pg_pool = new PgPool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
   }
   pool = globalAny.__pg_pool || null;
