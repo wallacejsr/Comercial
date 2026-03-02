@@ -11,15 +11,19 @@ let supabase: any = null;
 
 try {
   if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+    console.log('Creating Supabase client at module load time');
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
       },
     });
+    console.log('Supabase client created successfully');
+  } else {
+    console.error('Supabase URL or key missing at module load');
   }
 } catch (e: any) {
-  console.error('Supabase init error:', e?.message);
+  console.error('Supabase init error at module load:', e?.message);
 }
 
 export default async function handler(req: any, res: any) {
