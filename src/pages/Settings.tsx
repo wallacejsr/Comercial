@@ -9,6 +9,13 @@ export default function Settings() {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [geminiKey, setGeminiKey] = useState('');
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState('587');
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpPass, setSmtpPass] = useState('');
+  const [smtpFromName, setSmtpFromName] = useState('');
+  const [smtpFromEmail, setSmtpFromEmail] = useState('');
+  const [smtpSecure, setSmtpSecure] = useState(false);
   const [isInviteDrawerOpen, setIsInviteDrawerOpen] = useState(false);
   const [inviteForm, setInviteForm] = useState({ name: '', email: '', role: 'seller' });
 
@@ -22,7 +29,14 @@ export default function Settings() {
       const [stagesRes, usersRes, geminiRes] = await Promise.all([
         fetch('/api/funnel/stages', { headers }),
         fetch('/api/users', { headers }),
-        fetch('/api/settings/gemini_api_key', { headers })
+        fetch('/api/settings/gemini_api_key', { headers }),
+        fetch('/api/settings/smtp_host', { headers }),
+        fetch('/api/settings/smtp_port', { headers }),
+        fetch('/api/settings/smtp_user', { headers }),
+        fetch('/api/settings/smtp_pass', { headers }),
+        fetch('/api/settings/smtp_from_name', { headers }),
+        fetch('/api/settings/smtp_from_email', { headers }),
+        fetch('/api/settings/smtp_secure', { headers }),
       ]);
       
       if (stagesRes.ok) setStages(await stagesRes.json());
@@ -32,6 +46,13 @@ export default function Settings() {
         const geminiData = await geminiRes.json();
         if (geminiData) setGeminiKey(geminiData.valor || '');
       }
+      try { const sh = await (await fetch('/api/settings/smtp_host', { headers })).json(); setSmtpHost(sh?.valor || ''); } catch(e){}
+      try { const sp = await (await fetch('/api/settings/smtp_port', { headers })).json(); setSmtpPort(sp?.valor || '587'); } catch(e){}
+      try { const su = await (await fetch('/api/settings/smtp_user', { headers })).json(); setSmtpUser(su?.valor || ''); } catch(e){}
+      try { const spass = await (await fetch('/api/settings/smtp_pass', { headers })).json(); setSmtpPass(spass?.valor || ''); } catch(e){}
+      try { const sfn = await (await fetch('/api/settings/smtp_from_name', { headers })).json(); setSmtpFromName(sfn?.valor || ''); } catch(e){}
+      try { const sfe = await (await fetch('/api/settings/smtp_from_email', { headers })).json(); setSmtpFromEmail(sfe?.valor || ''); } catch(e){}
+      try { const ssec = await (await fetch('/api/settings/smtp_secure', { headers })).json(); setSmtpSecure((ssec?.valor || 'false') === 'true'); } catch(e){}
     } catch (err) {
       console.error('Erro ao carregar configurações:', err);
     } finally {
@@ -93,6 +114,31 @@ export default function Settings() {
       if (res.ok) toast.success('Configurações salvas com sucesso!');
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const saveSmtpSettings = async () => {
+    const headers = { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${localStorage.getItem('token')}`
+    };
+    try {
+      const pairs = [
+        ['smtp_host', smtpHost],
+        ['smtp_port', smtpPort],
+        ['smtp_user', smtpUser],
+        ['smtp_pass', smtpPass],
+        ['smtp_from_name', smtpFromName],
+        ['smtp_from_email', smtpFromEmail],
+        ['smtp_secure', smtpSecure ? 'true' : 'false']
+      ];
+      for (const [key, value] of pairs) {
+        await fetch('/api/settings', { method: 'POST', headers, body: JSON.stringify({ key, value }) });
+      }
+      toast.success('Configurações SMTP salvas com sucesso!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao salvar configurações SMTP');
     }
   };
 
@@ -420,6 +466,56 @@ export default function Settings() {
                   <p className="ml-4">"email": "lead@email.com",</p>
                   <p className="ml-4">"whatsapp": "5511999999999"</p>
                   <p className="text-slate-500">{"}"}</p>
+                </div>
+              </div>
+              
+              <div className="pt-8 border-t border-slate-100">
+                <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                  <Mail className="text-rose-500" size={20} />
+                  SMTP (Envio de E-mails)
+                </h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Host SMTP</label>
+                    <input value={smtpHost} onChange={e => setSmtpHost(e.target.value)} type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm" placeholder="smtp.exemplo.com" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Porta</label>
+                      <input value={smtpPort} onChange={e => setSmtpPort(e.target.value)} type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm" placeholder="587" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Segurança (TLS)</label>
+                      <div className="flex items-center gap-3">
+                        <input id="smtpSecure" checked={smtpSecure} onChange={e => setSmtpSecure(e.target.checked)} type="checkbox" />
+                        <label htmlFor="smtpSecure" className="text-sm text-slate-600">Usar TLS/SSL</label>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Usuário</label>
+                      <input value={smtpUser} onChange={e => setSmtpUser(e.target.value)} type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Senha</label>
+                      <input value={smtpPass} onChange={e => setSmtpPass(e.target.value)} type="password" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Nome do Remetente</label>
+                      <input value={smtpFromName} onChange={e => setSmtpFromName(e.target.value)} type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm" placeholder="Empresa X" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">E-mail do Remetente</label>
+                      <input value={smtpFromEmail} onChange={e => setSmtpFromEmail(e.target.value)} type="email" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm" placeholder="no-reply@empresa.com" />
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={saveSmtpSettings} className="bg-rose-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-rose-700 transition-all">Salvar SMTP</button>
+                    <button onClick={() => { setSmtpHost(''); setSmtpPort('587'); setSmtpUser(''); setSmtpPass(''); setSmtpFromName(''); setSmtpFromEmail(''); setSmtpSecure(false); }} className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold hover:bg-slate-50">Limpar</button>
+                  </div>
                 </div>
               </div>
             </div>

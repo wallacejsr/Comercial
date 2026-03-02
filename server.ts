@@ -15,16 +15,38 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Email Transporter (Mock or real SMTP)
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.ethereal.email",
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER || "mock_user",
-    pass: process.env.SMTP_PASS || "mock_pass",
-  },
-});
+// Helper: create transporter from settings or env
+async function createTransporter() {
+  try {
+    const hostRow = await SettingRepository.get('smtp_host');
+    const portRow = await SettingRepository.get('smtp_port');
+    const userRow = await SettingRepository.get('smtp_user');
+    const passRow = await SettingRepository.get('smtp_pass');
+    const secureRow = await SettingRepository.get('smtp_secure');
+
+    const host = hostRow?.valor || process.env.SMTP_HOST || 'smtp.ethereal.email';
+    const port = Number(portRow?.valor || process.env.SMTP_PORT || 587);
+    const user = userRow?.valor || process.env.SMTP_USER || undefined;
+    const pass = passRow?.valor || process.env.SMTP_PASS || undefined;
+    const secure = (secureRow?.valor || process.env.SMTP_SECURE || 'false') === 'true';
+
+    const config: any = { host, port, secure };
+    if (user && pass) config.auth = { user, pass };
+    return nodemailer.createTransport(config);
+  } catch (err) {
+    console.error('createTransporter error:', err);
+    // fallback to env-based transporter
+    return nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.ethereal.email',
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: (process.env.SMTP_SECURE === 'true') || false,
+      auth: {
+        user: process.env.SMTP_USER || undefined,
+        pass: process.env.SMTP_PASS || undefined,
+      },
+    });
+  }
+}
 
 async function startServer() {
   const app = express();
@@ -65,11 +87,21 @@ async function startServer() {
 
     for (const item of pending) {
       try {
-        // In a real scenario, we'd use the actual SMTP
-        // For demo, we just simulate success
-        
-        // Simulate network delay
-        await new Promise(resolve => setTimeout(resolve, 500));
+        const transporterInstance = await createTransporter();
+        const fromNameRow = await SettingRepository.get('smtp_from_name');
+        const fromEmailRow = await SettingRepository.get('smtp_from_email');
+        const fromName = (fromNameRow?.valor) || process.env.SMTP_FROM_NAME || 'No Reply';
+        const fromEmail = (fromEmailRow?.valor) || process.env.SMTP_FROM_EMAIL || 'no-reply@example.com';
+
+        const mailOptions = {
+          from: `${fromName} <${fromEmail}>`,
+          to: item.email_destinatario,
+          subject: item.assunto || 'Mensagem',
+          html: item.conteudo_html || '<p>Sem conteúdo</p>'
+        };
+
+        const info = await transporterInstance.sendMail(mailOptions);
+        console.log('Email sent:', info.messageId || info.response);
 
         await EmailRepository.updateEmailStatus(item.id, 'enviado');
         await EmailRepository.incrementSentCount(item.campanha_id);
